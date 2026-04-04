@@ -29,7 +29,13 @@ npm install
 copy .env.example .env.local
 ```
 
-Set `GEMINI_API_KEY` in `.env.local`, then run:
+Set these values in `.env.local`:
+
+- `GEMINI_API_KEY`
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+Then run:
 
 ```bash
 npm run dev
@@ -42,3 +48,4 @@ Open `http://localhost:3000`.
 - OCR is CPU-intensive, especially for long PDFs.
 - Gemini cleanup is optional. If the API key is missing or a Gemini call fails, the app falls back to raw OCR text.
 - Word coordinates come from `tesseract.js` OCR output.
+- Supabase authentication is required before the converter page can be used.

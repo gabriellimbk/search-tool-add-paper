@@ -64,6 +64,19 @@ textarea {
   width: min(640px, 100%);
 }
 
+.auth-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 250, 241, 0.72);
+  color: var(--muted);
+}
+
 .section {
   display: grid;
   gap: 10px;
@@ -110,6 +123,7 @@ textarea {
 }
 
 .textarea,
+.text-input,
 .status-box,
 .preview {
   width: 100%;
@@ -122,6 +136,10 @@ textarea {
 .textarea {
   min-height: 100px;
   resize: vertical;
+}
+
+.text-input {
+  min-height: 54px;
 }
 
 .actions {
@@ -175,5 +193,10 @@ textarea {
 @media (max-width: 920px) {
   .controls {
     width: 100%;
+  }
+
+  .auth-bar {
+    flex-direction: column;
+    align-items: start;
   }
 }

@@ -39,5 +39,11 @@ export default async function HomePage({ searchParams }: PageProps) {
     redirect(`/login?next=${encodeURIComponent(buildCurrentPath(params))}`);
   }
 
+  const email = user.email?.toLowerCase() ?? "";
+  if (!email.endsWith("@ri.edu.sg")) {
+    await supabase.auth.signOut();
+    redirect(`/login?next=${encodeURIComponent(buildCurrentPath(params))}&error=${encodeURIComponent("Use an @ri.edu.sg email address.")}`);
+  }
+
   return <ConverterClient userEmail={user.email ?? "Signed in"} />;
 }

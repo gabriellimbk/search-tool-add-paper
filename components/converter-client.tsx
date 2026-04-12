@@ -397,15 +397,32 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
 
           <div className="section">
             <h1>Add Paper</h1>
-            <p>
-              Upload either examination papers or examiner reports. Files are routed automatically to the correct
-              local folder based on the filename.
-            </p>
-            <p>
-              When this page is opened from the local search app, converted files are uploaded back automatically to{" "}
-              <code>{importTargetLabel ?? "the local import endpoint"}</code>.
-            </p>
+            <ul className="requirements-list">
+              <li>All uploads must be <strong>PDF</strong> files</li>
+              <li>Name your files in the correct format shown below before uploading</li>
+            </ul>
           </div>
+
+          <div className="section">
+            <h2>Filename Format</h2>
+            <div className="format-grid">
+              <div className="format-group">
+                <div className="format-label">Examination Papers</div>
+                <div className="format-examples">
+                  <code>N2020_P1_H2 Chem.pdf</code>
+                  <code>RI2020_P1_H2 Chem.pdf</code>
+                  <code>SP_P1_H2_Chem.pdf</code>
+                </div>
+              </div>
+              <div className="format-group">
+                <div className="format-label">Examiner Reports</div>
+                <div className="format-examples">
+                  <code>N2021_ER_H2 Chem.pdf</code>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="section">
             <h2>Document</h2>
             <p>Choose one or more PDF files from your computer.</p>
@@ -416,22 +433,6 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
               <span className="hint">PDF only. Files will be processed one after another.</span>
               <input type="file" accept="application/pdf" multiple onChange={onFileChange} />
             </label>
-          </div>
-
-          <div className="section">
-            <h2>Filename Rules</h2>
-            <div className="status-box">
-              <div>Exam paper format: <code>N2020_P1_H2 Chem.pdf</code></div>
-              <div>Meaning: year/session, paper number, subject.</div>
-              <div style={{ marginTop: 8 }}>Examiner report format: <code>N2021_ER_H2 Chem.pdf</code></div>
-              <div>Meaning: year/session, <code>ER</code>, subject.</div>
-              <div style={{ marginTop: 8 }}>
-                Examples: <code>N2020_P2_H2 Chem.pdf</code>, <code>N2021_ER_H2 Chem.pdf</code>
-              </div>
-              <div style={{ marginTop: 8 }}>
-                The subject text must match between the paper and its examiner report so the local search app can link them.
-              </div>
-            </div>
           </div>
 
           {selectedFiles.length ? (
@@ -524,7 +525,7 @@ function formatImportTarget(importUrl: string) {
 function classifyFile(file: File): ClassifiedFile {
   const normalized = normalizeStem(file.name);
 
-  if (/^(?:[A-Za-z]?\d{4}|SP)\s+ER\s+.+$/i.test(normalized)) {
+  if (/^(?:[A-Za-z]{0,4}\d{4}|SP)\s+ER\s+.+$/i.test(normalized)) {
     return {
       file,
       documentType: "examiner_report",
@@ -532,7 +533,7 @@ function classifyFile(file: File): ClassifiedFile {
     };
   }
 
-  if (/^(?:[A-Za-z]?\d{4}|SP)\s+P\d\s+.+$/i.test(normalized)) {
+  if (/^(?:[A-Za-z]{0,4}\d{4}|SP)\s+P\d\s+.+$/i.test(normalized)) {
     return {
       file,
       documentType: "paper",

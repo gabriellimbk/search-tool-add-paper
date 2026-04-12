@@ -34,6 +34,17 @@ a {
   color: inherit;
 }
 
+code {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.875rem;
+  background: rgba(180, 69, 22, 0.09);
+  color: var(--accent-dark);
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(180, 69, 22, 0.18);
+  white-space: nowrap;
+}
+
 button,
 input,
 textarea {
@@ -86,15 +97,81 @@ textarea {
   margin-top: 20px;
 }
 
+.section h1 {
+  margin: 0;
+  font-size: 1.55rem;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
 .section h2 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
 }
 
 .section p {
   margin: 0;
-  color: var(--muted);
+  color: var(--text);
+  line-height: 1.6;
+  font-size: 0.97rem;
+}
+
+.requirements-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.requirements-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  color: var(--text);
   line-height: 1.55;
+  font-size: 0.97rem;
+}
+
+.requirements-list li::before {
+  content: "›";
+  color: var(--accent);
+  font-size: 1.2rem;
+  font-weight: bold;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.format-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.format-group {
+  padding: 14px 16px;
+  border: 1px solid rgba(180, 69, 22, 0.22);
+  border-radius: 14px;
+  background: rgba(180, 69, 22, 0.04);
+  display: grid;
+  gap: 10px;
+}
+
+.format-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-dark);
+}
+
+.format-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .dropzone {
@@ -168,18 +245,27 @@ textarea {
 
 .button-primary {
   background: var(--accent);
-  color: #fffaf6;
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.button-primary:hover:not(:disabled) {
+  background: var(--accent-dark);
 }
 
 .button-secondary {
-  background: rgba(30, 29, 26, 0.08);
+  background: rgba(30, 29, 26, 0.1);
   color: var(--text);
+  font-weight: 500;
+  border: 1px solid rgba(30, 29, 26, 0.14);
 }
 
 .status-box {
-  color: var(--muted);
-  line-height: 1.55;
+  color: var(--text);
+  line-height: 1.6;
   min-height: 78px;
+  font-size: 0.95rem;
 }
 
 .status-success {

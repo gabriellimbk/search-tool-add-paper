@@ -3,7 +3,7 @@
 import { ChangeEvent, useEffect, useState } from "react";
 import { createWorker } from "tesseract.js";
 import { downloadJson } from "@/lib/download";
-import type { OcrDocument, OcrPage, OcrWord } from "@/lib/types";
+import type { DocumentType, OcrDocument, OcrPage, OcrWord } from "@/lib/types";
 
 const PDFJS_VERSION = "5.6.205";
 
@@ -18,6 +18,12 @@ type ImportConfig = {
   importUrl: string;
   importToken: string;
   returnUrl: string;
+};
+
+type ClassifiedFile = {
+  file: File;
+  documentType: DocumentType | null;
+  error: string | null;
 };
 
 type TesseractWord = {
@@ -74,15 +80,21 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
     }
   }, []);
 
+  const importTargetLabel = importConfig ? formatImportTarget(importConfig.importUrl) : null;
+
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
+    const classifiedFiles = files.map(classifyFile);
+    const invalidFiles = classifiedFiles.filter((item) => item.error);
     setSelectedFiles(files);
     setState((current) => ({
       ...current,
       message: files.length
-        ? `Ready to process ${files.length} PDF file(s).`
+        ? invalidFiles.length
+          ? "Rename the invalid files before converting."
+          : `Ready to process ${files.length} PDF file(s).`
         : "Upload a PDF to begin.",
-      error: null,
+      error: invalidFiles.length ? invalidFiles.map((item) => item.error).join(" ") : null,
       documents: []
     }));
   }
@@ -114,6 +126,17 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
       return;
     }
 
+    const classifiedFiles = selectedFiles.map(classifyFile);
+    const invalidFiles = classifiedFiles.filter((item) => item.error);
+    if (invalidFiles.length) {
+      setState((current) => ({
+        ...current,
+        error: invalidFiles.map((item) => item.error).join(" "),
+        message: "Processing stopped. Fix the filenames first."
+      }));
+      return;
+    }
+
     setState({
       busy: true,
       message: "Loading PDFs and starting OCR worker...",
@@ -133,6 +156,7 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
 
       for (let fileIndex = 0; fileIndex < selectedFiles.length; fileIndex += 1) {
         const selectedFile = selectedFiles[fileIndex];
+        const classifiedFile = classifiedFiles[fileIndex];
         const buffer = await selectedFile.arrayBuffer();
         const loadingTask = pdfjs.getDocument({ data: buffer });
         const pdf = await loadingTask.promise;
@@ -217,6 +241,7 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
         }
 
         documents.push({
+          document_type: classifiedFile.documentType ?? "paper",
           source_pdf: selectedFile.name,
           generated_at: new Date().toISOString(),
           pages
@@ -266,6 +291,7 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
 
         const payload = new FormData();
         payload.append("import_token", importConfig!.importToken);
+        payload.append("document_type", document.document_type);
         payload.append("pdf", pdfFile, pdfFile.name);
         payload.append(
           "json",
@@ -371,6 +397,14 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
 
           <div className="section">
             <h1>Add Paper</h1>
+            <p>
+              Upload either examination papers or examiner reports. Files are routed automatically to the correct
+              local folder based on the filename.
+            </p>
+            <p>
+              When this page is opened from the local search app, converted files are uploaded back automatically to{" "}
+              <code>{importTargetLabel ?? "the local import endpoint"}</code>.
+            </p>
           </div>
           <div className="section">
             <h2>Document</h2>
@@ -383,6 +417,48 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
               <input type="file" accept="application/pdf" multiple onChange={onFileChange} />
             </label>
           </div>
+
+          <div className="section">
+            <h2>Filename Rules</h2>
+            <div className="status-box">
+              <div>Exam paper format: <code>N2020_P1_H2 Chem.pdf</code></div>
+              <div>Meaning: year/session, paper number, subject.</div>
+              <div style={{ marginTop: 8 }}>Examiner report format: <code>N2021_ER_H2 Chem.pdf</code></div>
+              <div>Meaning: year/session, <code>ER</code>, subject.</div>
+              <div style={{ marginTop: 8 }}>
+                Examples: <code>N2020_P2_H2 Chem.pdf</code>, <code>N2021_ER_H2 Chem.pdf</code>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                The subject text must match between the paper and its examiner report so the local search app can link them.
+              </div>
+            </div>
+          </div>
+
+          {selectedFiles.length ? (
+            <div className="section">
+              <h2>Detected File Types</h2>
+              <div className="status-box">
+                {selectedFiles.map((file) => {
+                  const classified = classifyFile(file);
+                  return (
+                    <div key={file.name} style={{ marginBottom: 8 }}>
+                      <strong>{file.name}</strong>:{" "}
+                      {classified.documentType === "paper"
+                        ? "Exam paper"
+                        : classified.documentType === "examiner_report"
+                          ? "Examiner report"
+                          : "Invalid filename"}
+                      {classified.error ? (
+                        <div className="status-error" style={{ marginTop: 4 }}>
+                          {classified.error}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
 
           <div className="section">
             <h2>Run</h2>
@@ -408,7 +484,13 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
             <h2>Status</h2>
             <div className="status-box">
               <div>{state.message}</div>
-              {importConfig ? <div style={{ marginTop: 8 }}>Connected to local search app import.</div> : null}
+              {importConfig ? (
+                <div style={{ marginTop: 8 }}>
+                  Auto upload enabled. Target: <code>{importTargetLabel}</code>
+                </div>
+              ) : (
+                <div style={{ marginTop: 8 }}>No local import target detected. Use Download JSON instead.</div>
+              )}
               {state.error ? (
                 <div className="status-error" style={{ marginTop: 8 }}>
                   {state.error}
@@ -420,6 +502,50 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
       </section>
     </main>
   );
+}
+
+function normalizeStem(filename: string) {
+  return filename
+    .replace(/\.pdf$/i, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatImportTarget(importUrl: string) {
+  try {
+    const parsed = new URL(importUrl);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return importUrl;
+  }
+}
+
+function classifyFile(file: File): ClassifiedFile {
+  const normalized = normalizeStem(file.name);
+
+  if (/^(?:[A-Za-z]?\d{4}|SP)\s+ER\s+.+$/i.test(normalized)) {
+    return {
+      file,
+      documentType: "examiner_report",
+      error: null
+    };
+  }
+
+  if (/^(?:[A-Za-z]?\d{4}|SP)\s+P\d\s+.+$/i.test(normalized)) {
+    return {
+      file,
+      documentType: "paper",
+      error: null
+    };
+  }
+
+  return {
+    file,
+    documentType: null,
+    error:
+      `${file.name} is not in a supported format. Use names like N2020_P1_H2 Chem.pdf or N2021_ER_H2 Chem.pdf.`
+  };
 }
 
 function mapWord(word: TesseractWord): OcrWord {

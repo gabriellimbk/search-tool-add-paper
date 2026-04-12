@@ -1,3 +1,5 @@
+export type DocumentType = "paper" | "examiner_report";
+
 export type OcrWord = {
   text: string;
   left: number;
@@ -20,6 +22,7 @@ export type OcrPage = {
 };
 
 export type OcrDocument = {
+  document_type: DocumentType;
   source_pdf: string;
   generated_at: string;
   pages: OcrPage[];

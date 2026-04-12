@@ -404,7 +404,7 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
           </div>
 
           <div className="section">
-            <h2>Filename Format</h2>
+            <h2>Filename Format Examples</h2>
             <div className="format-grid">
               <div className="format-group">
                 <div className="format-label">Examination Papers</div>
@@ -424,14 +424,13 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
           </div>
 
           <div className="section">
-            <h2>Document</h2>
-            <p>Choose one or more PDF files from your computer.</p>
+            <h2>Upload</h2>
             <label className="dropzone">
               <strong>
                 {selectedFiles.length ? `${selectedFiles.length} file(s) selected` : "No file selected"}
               </strong>
-              <span className="hint">PDF only. Files will be processed one after another.</span>
               <input type="file" accept="application/pdf" multiple onChange={onFileChange} />
+              <span className="hint">Select one or more PDF files. They will be converted one after another.</span>
             </label>
           </div>
 

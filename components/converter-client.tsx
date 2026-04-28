@@ -400,6 +400,7 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
             <ul className="requirements-list">
               <li>All uploads must be <strong>PDF</strong> files</li>
               <li>Name your files in the correct format shown below before uploading</li>
+              <li>Test the uploading of just 1 PDF file before you proceed to upload multiple PDF files</li>
             </ul>
           </div>
 

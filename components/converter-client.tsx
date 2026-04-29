@@ -155,16 +155,12 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
         workerRef.current = null;
         setState({
           busy: false,
-          message: message.message,
+          message: importConfig
+            ? "Import complete. You can close this tab and return to the search app."
+            : message.message,
           error: null,
           documents: message.documents
         });
-
-        if (importConfig?.returnUrl) {
-          window.setTimeout(() => {
-            window.location.href = importConfig.returnUrl;
-          }, 1200);
-        }
         return;
       }
 
@@ -322,6 +318,13 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
               ) : (
                 <div style={{ marginTop: 8 }}>No local import target detected. Use Download JSON instead.</div>
               )}
+              {importConfig?.returnUrl && !state.busy && !state.error && state.message.startsWith("Import complete") ? (
+                <div style={{ marginTop: 12 }}>
+                  <a className="button button-primary" href={importConfig.returnUrl}>
+                    Return to search app
+                  </a>
+                </div>
+              ) : null}
               {state.error ? (
                 <div className="status-error" style={{ marginTop: 8 }}>
                   {state.error}

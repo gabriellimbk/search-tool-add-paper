@@ -1,7 +1,9 @@
 import { createWorker } from "tesseract.js";
+import type { PDFPageProxy, PageViewport } from "pdfjs-dist";
 import type { DocumentType, OcrDocument, OcrPage, OcrWord } from "@/lib/types";
 
 const PDFJS_VERSION = "5.6.205";
+const PDF_RENDER_SCALE = 2;
 
 type ImportConfig = {
   importUrl: string;
@@ -59,20 +61,23 @@ workerScope.onmessage = async (event: MessageEvent<StartMessage>) => {
 
   const { files, classifiedFiles, importConfig } = event.data;
   const documents: OcrDocument[] = [];
-  let worker: TesseractWorker | null = null;
+  const workerRef: { current: TesseractWorker | null } = { current: null };
 
   try {
-    if (typeof OffscreenCanvas === "undefined") {
-      throw new Error("Background conversion requires a browser with OffscreenCanvas support.");
-    }
-
-    postStatus("Loading PDFs and starting OCR worker...");
+    postStatus("Loading PDFs...");
 
     const pdfjs = await import("pdfjs-dist");
     pdfjs.GlobalWorkerOptions.workerSrc =
       `https://unpkg.com/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
 
-    worker = await createWorker("eng");
+    const getOcrWorker = async () => {
+      if (!workerRef.current) {
+        postStatus("Starting OCR worker...");
+        workerRef.current = await createWorker("eng");
+      }
+
+      return workerRef.current;
+    };
 
     for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
       const selectedFile = files[fileIndex];
@@ -82,15 +87,15 @@ workerScope.onmessage = async (event: MessageEvent<StartMessage>) => {
         classifiedFile?.documentType ?? "paper",
         fileIndex + 1,
         files.length,
-        worker,
+        getOcrWorker,
         pdfjs
       );
 
-      documents.push(document);
-      workerScope.postMessage({ type: "document", document });
-
       if (importConfig) {
         await importDocument(document, selectedFile, importConfig, fileIndex + 1, files.length);
+      } else {
+        documents.push(document);
+        workerScope.postMessage({ type: "document", document });
       }
     }
 
@@ -109,8 +114,8 @@ workerScope.onmessage = async (event: MessageEvent<StartMessage>) => {
       documents
     });
   } finally {
-    if (worker) {
-      await worker.terminate();
+    if (workerRef.current) {
+      await workerRef.current.terminate();
     }
   }
 };
@@ -120,7 +125,7 @@ async function convertPdf(
   documentType: DocumentType,
   fileNumber: number,
   totalFiles: number,
-  worker: TesseractWorker,
+  getOcrWorker: () => Promise<TesseractWorker>,
   pdfjs: typeof import("pdfjs-dist")
 ): Promise<OcrDocument> {
   const buffer = await selectedFile.arrayBuffer();
@@ -135,71 +140,79 @@ async function convertPdf(
       );
 
       const page = await pdf.getPage(pageIndex);
-      const viewport = page.getViewport({ scale: 2 });
-      const textContent = await page.getTextContent();
-      const canvas = new OffscreenCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-      const context = canvas.getContext("2d");
+      try {
+        const viewport = page.getViewport({ scale: PDF_RENDER_SCALE });
+        const textContent = await page.getTextContent();
+        const pdfTextItems = textContent.items as PdfTextItem[];
+        const pdfText = buildPdfText(pdfTextItems);
+        const pdfWords = extractPdfWords(pdfTextItems, viewport.height);
+        const shouldUsePdfText = isUsablePdfText(pdfText, pdfWords);
 
-      if (!context) {
-        throw new Error("Canvas rendering is not available in this browser.");
-      }
+        let words = pdfWords;
+        let text = pdfText;
+        let extractionMethod: OcrPage["extraction_method"] = "pdf_text";
+        const imageSize = {
+          width: Math.ceil(viewport.width),
+          height: Math.ceil(viewport.height)
+        };
 
-      await page.render({
-        canvas: canvas as unknown as HTMLCanvasElement,
-        canvasContext: context,
-        viewport
-      } as unknown as Parameters<typeof page.render>[0]).promise;
+        if (!shouldUsePdfText) {
+          postStatus(
+            `Running OCR on ${selectedFile.name} (${fileNumber}/${totalFiles}), page ${pageIndex} of ${pdf.numPages}...`
+          );
 
-      const pdfTextItems = textContent.items as PdfTextItem[];
-      const pdfText = buildPdfText(pdfTextItems);
-      const pdfWords = extractPdfWords(pdfTextItems, viewport.height);
-      const shouldUsePdfText = isUsablePdfText(pdfText, pdfWords);
+          const canvas = await renderPageToCanvas(page, viewport);
+          try {
+            const ocrWorker = await getOcrWorker();
+            const result = await ocrWorker.recognize(
+              canvas as unknown as HTMLCanvasElement,
+              {},
+              { blocks: true }
+            );
+            words = extractWords(result.data.blocks as TesseractBlock[] | null | undefined).map(mapWord);
+            const rawText = result.data.text.trim();
+            text = rawText
+              ? await refinePageText(rawText, pageIndex, pdf.numPages, selectedFile.name, fileNumber, totalFiles)
+              : rawText;
+            extractionMethod = "ocr";
+            imageSize.width = canvas.width;
+            imageSize.height = canvas.height;
+          } finally {
+            releaseCanvas(canvas);
+          }
+        } else if (pdfWords.length === 0) {
+          postStatus(
+            `Running OCR word-box fallback on ${selectedFile.name} (${fileNumber}/${totalFiles}), page ${pageIndex} of ${pdf.numPages}...`
+          );
 
-      let words = pdfWords;
-      let text = pdfText;
-      let extractionMethod: OcrPage["extraction_method"] = "pdf_text";
-
-      if (!shouldUsePdfText) {
-        postStatus(
-          `Running OCR on ${selectedFile.name} (${fileNumber}/${totalFiles}), page ${pageIndex} of ${pdf.numPages}...`
-        );
-
-        const result = await worker.recognize(
-          canvas as unknown as HTMLCanvasElement,
-          {},
-          { blocks: true }
-        );
-        words = extractWords(result.data.blocks as TesseractBlock[] | null | undefined).map(mapWord);
-        const rawText = result.data.text.trim();
-        text = rawText
-          ? await refinePageText(rawText, pageIndex, pdf.numPages, selectedFile.name, fileNumber, totalFiles)
-          : rawText;
-        extractionMethod = "ocr";
-      } else if (pdfWords.length === 0) {
-        postStatus(
-          `Running OCR word-box fallback on ${selectedFile.name} (${fileNumber}/${totalFiles}), page ${pageIndex} of ${pdf.numPages}...`
-        );
-
-        const result = await worker.recognize(
-          canvas as unknown as HTMLCanvasElement,
-          {},
-          { blocks: true }
-        );
-        words = extractWords(result.data.blocks as TesseractBlock[] | null | undefined).map(mapWord);
-        extractionMethod = "pdf_text_with_ocr_words";
-      }
-
-      pages.push({
-        page_number: pageIndex,
-        text,
-        search_text: normalizeSearchText(text),
-        extraction_method: extractionMethod,
-        words,
-        image_size: {
-          width: canvas.width,
-          height: canvas.height
+          const canvas = await renderPageToCanvas(page, viewport);
+          try {
+            const ocrWorker = await getOcrWorker();
+            const result = await ocrWorker.recognize(
+              canvas as unknown as HTMLCanvasElement,
+              {},
+              { blocks: true }
+            );
+            words = extractWords(result.data.blocks as TesseractBlock[] | null | undefined).map(mapWord);
+            extractionMethod = "pdf_text_with_ocr_words";
+            imageSize.width = canvas.width;
+            imageSize.height = canvas.height;
+          } finally {
+            releaseCanvas(canvas);
+          }
         }
-      });
+
+        pages.push({
+          page_number: pageIndex,
+          text,
+          search_text: normalizeSearchText(text),
+          extraction_method: extractionMethod,
+          words,
+          image_size: imageSize
+        });
+      } finally {
+        page.cleanup();
+      }
     }
   } finally {
     await loadingTask.destroy();
@@ -211,6 +224,32 @@ async function convertPdf(
     generated_at: new Date().toISOString(),
     pages
   };
+}
+
+async function renderPageToCanvas(page: PDFPageProxy, viewport: PageViewport) {
+  if (typeof OffscreenCanvas === "undefined") {
+    throw new Error("OCR requires a browser with OffscreenCanvas support.");
+  }
+
+  const canvas = new OffscreenCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("Canvas rendering is not available in this browser.");
+  }
+
+  await page.render({
+    canvas: canvas as unknown as HTMLCanvasElement,
+    canvasContext: context,
+    viewport
+  } as unknown as Parameters<PDFPageProxy["render"]>[0]).promise;
+
+  return canvas;
+}
+
+function releaseCanvas(canvas: OffscreenCanvas) {
+  canvas.width = 1;
+  canvas.height = 1;
 }
 
 async function importDocument(

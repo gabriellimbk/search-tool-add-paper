@@ -20,6 +20,14 @@ type ImportConfig = {
   returnUrl: string;
 };
 
+type ImportTokenResponse = {
+  ok?: boolean;
+  import_url?: string;
+  import_token?: string;
+  return_url?: string;
+  error?: string;
+};
+
 type ClassifiedFile = {
   file: File;
   documentType: DocumentType | null;
@@ -53,6 +61,16 @@ type PdfTextItem = {
   hasEOL?: boolean;
 };
 
+class ImportUploadError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ImportUploadError";
+    this.status = status;
+  }
+}
+
 const initialState: ProcessState = {
   busy: false,
   message: "Upload a PDF to begin.",
@@ -64,6 +82,7 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [state, setState] = useState<ProcessState>(initialState);
   const [importConfig, setImportConfig] = useState<ImportConfig | null>(null);
+  const [tabHidden, setTabHidden] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -78,6 +97,12 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
         returnUrl
       });
     }
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setTabHidden(document.visibilityState === "hidden");
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
   }, []);
 
   const importTargetLabel = importConfig ? formatImportTarget(importConfig.importUrl) : null;
@@ -240,31 +265,50 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
           });
         }
 
-        documents.push({
+        const newDocument: OcrDocument = {
           document_type: classifiedFile.documentType ?? "paper",
           source_pdf: selectedFile.name,
           generated_at: new Date().toISOString(),
           pages
-        });
-      }
+        };
+        documents.push(newDocument);
 
-      setState({
-        busy: false,
-        message: `Finished ${documents.length} PDF file(s).`,
-        error: null,
-        documents
-      });
+        setState((current) => ({
+          ...current,
+          documents: [...current.documents, newDocument]
+        }));
+
+        if (importConfig) {
+          await importSingleDocument(newDocument, selectedFile, fileIndex);
+        }
+      }
 
       if (importConfig) {
-        await importDocuments(documents);
+        setState((current) => ({
+          ...current,
+          busy: false,
+          message: "Import complete. Returning to the search app...",
+          error: null
+        }));
+        if (importConfig.returnUrl) {
+          window.setTimeout(() => {
+            window.location.href = importConfig.returnUrl;
+          }, 1200);
+        }
+      } else {
+        setState((current) => ({
+          ...current,
+          busy: false,
+          message: `Finished ${documents.length} PDF file(s).`
+        }));
       }
     } catch (error) {
-      setState({
+      setState((current) => ({
+        ...current,
         busy: false,
         message: "Processing stopped.",
-        error: error instanceof Error ? error.message : "Unknown error.",
-        documents: []
-      });
+        error: error instanceof Error ? error.message : "Unknown error."
+      }));
     } finally {
       if (worker) {
         await worker.terminate();
@@ -272,74 +316,108 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
     }
   }
 
-  async function importDocuments(documents: OcrDocument[]) {
+  async function importSingleDocument(document: OcrDocument, pdfFile: File, index: number) {
+    const currentConfig = importConfig;
+    if (!currentConfig) {
+      throw new Error("Local import target is not configured.");
+    }
+
     setState((current) => ({
       ...current,
-      busy: true,
-      message: `Sending ${documents.length} file(s) back to the search app...`,
-      error: null
+      message: `Preparing upload ${index + 1} of ${selectedFiles.length}: ${document.source_pdf}...`
     }));
 
+    const uploadConfig = await refreshImportConfig(currentConfig, false);
+
     try {
-      for (let index = 0; index < documents.length; index += 1) {
-        const document = documents[index];
-        const pdfFile = selectedFiles[index];
-
-        if (!pdfFile) {
-          throw new Error(`Missing original PDF for ${document.source_pdf}.`);
-        }
-
-        const payload = new FormData();
-        payload.append("import_token", importConfig!.importToken);
-        payload.append("document_type", document.document_type);
-        payload.append("pdf", pdfFile, pdfFile.name);
-        payload.append(
-          "json",
-          new File(
-            [JSON.stringify(document, null, 2)],
-            document.source_pdf.replace(/\.pdf$/i, ".json"),
-            { type: "application/json" }
-          )
-        );
-
-        const response = await fetch(importConfig!.importUrl, {
-          method: "POST",
-          headers: {
-            "X-Import-Token": importConfig!.importToken
-          },
-          body: payload
-        });
-
-        const result = (await response.json()) as { error?: string };
-        if (!response.ok) {
-          throw new Error(result.error ?? `Import failed for ${document.source_pdf}.`);
-        }
-
-        setState((current) => ({
-          ...current,
-          message: `Imported ${index + 1} of ${documents.length}: ${document.source_pdf}`
-        }));
-      }
-
-      setState((current) => ({
-        ...current,
-        busy: false,
-        message: "Import complete. Returning to the search app...",
-        error: null
-      }));
-
-      if (importConfig?.returnUrl) {
-        window.setTimeout(() => {
-          window.location.href = importConfig.returnUrl;
-        }, 1200);
-      }
+      await postImportedDocument(document, pdfFile, index, uploadConfig);
     } catch (error) {
+      if (!isExpiredImportTokenError(error)) {
+        throw error;
+      }
+
       setState((current) => ({
         ...current,
-        busy: false,
-        message: "Automatic import failed.",
-        error: error instanceof Error ? error.message : "Unknown import error."
+        message: `Import token expired while uploading ${document.source_pdf}. Requesting a fresh token...`
       }));
+
+      const retryConfig = await refreshImportConfig(uploadConfig, true);
+      await postImportedDocument(document, pdfFile, index, retryConfig);
+    }
+
+    setState((current) => ({
+      ...current,
+      message: `Uploaded ${index + 1} of ${selectedFiles.length}: ${document.source_pdf}`
+    }));
+  }
+
+  async function refreshImportConfig(currentConfig: ImportConfig, required: boolean) {
+    try {
+      const response = await fetch(buildImportTokenUrl(currentConfig.importUrl), {
+        method: "GET",
+        cache: "no-store"
+      });
+
+      const payload = (await response.json()) as ImportTokenResponse;
+      if (!response.ok || !payload.import_token?.trim()) {
+        throw new Error(payload.error ?? "Local search app did not return a fresh import token.");
+      }
+
+      const nextConfig = {
+        importUrl: payload.import_url?.trim() || currentConfig.importUrl,
+        importToken: payload.import_token.trim(),
+        returnUrl: payload.return_url?.trim() ?? currentConfig.returnUrl
+      };
+      setImportConfig(nextConfig);
+      return nextConfig;
+    } catch (error) {
+      if (!required) {
+        return currentConfig;
+      }
+
+      const message = error instanceof Error ? error.message : "Unknown error.";
+      throw new Error(`Could not refresh the local import token: ${message}`);
+    }
+  }
+
+  async function postImportedDocument(
+    document: OcrDocument,
+    pdfFile: File,
+    index: number,
+    config: ImportConfig
+  ) {
+    setState((current) => ({
+      ...current,
+      message: `Uploading paper ${index + 1} of ${selectedFiles.length}: ${document.source_pdf}...`
+    }));
+
+    const payload = new FormData();
+    payload.append("import_token", config.importToken);
+    payload.append("document_type", document.document_type);
+    payload.append("pdf", pdfFile, pdfFile.name);
+    payload.append(
+      "json",
+      new File(
+        [JSON.stringify(document, null, 2)],
+        document.source_pdf.replace(/\.pdf$/i, ".json"),
+        { type: "application/json" }
+      )
+    );
+
+    const response = await fetch(config.importUrl, {
+      method: "POST",
+      headers: {
+        "X-Import-Token": config.importToken
+      },
+      body: payload
+    });
+
+    const result = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      throw new ImportUploadError(
+        result.error ?? `Import failed for ${document.source_pdf}.`,
+        response.status
+      );
     }
   }
 
@@ -492,6 +570,11 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
               ) : (
                 <div style={{ marginTop: 8 }}>No local import target detected. Use Download JSON instead.</div>
               )}
+              {tabHidden && state.busy ? (
+                <div style={{ marginTop: 8, color: "#92400e", background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 4, padding: "6px 10px" }}>
+                  Processing may be slower while this tab is in the background. Keep this tab active for best performance.
+                </div>
+              ) : null}
               {state.error ? (
                 <div className="status-error" style={{ marginTop: 8 }}>
                   {state.error}
@@ -520,6 +603,22 @@ function formatImportTarget(importUrl: string) {
   } catch {
     return importUrl;
   }
+}
+
+function buildImportTokenUrl(importUrl: string) {
+  const parsed = new URL(importUrl);
+  parsed.pathname = "/api/import-token";
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+function isExpiredImportTokenError(error: unknown) {
+  return (
+    error instanceof ImportUploadError &&
+    error.status === 401 &&
+    /token expired/i.test(error.message)
+  );
 }
 
 function classifyFile(file: File): ClassifiedFile {

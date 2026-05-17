@@ -255,7 +255,7 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
           pages.push({
             page_number: pageIndex,
             text,
-            search_text: normalizeSearchText(text),
+            search_text: buildSearchText(text),
             extraction_method: extractionMethod,
             words,
             image_size: {
@@ -721,6 +721,52 @@ function extractPdfWords(items: PdfTextItem[], pageHeight: number): OcrWord[] {
 function isUsablePdfText(text: string, words: OcrWord[]) {
   const normalized = normalizeSearchText(text);
   return normalized.length >= 120 && words.length >= 40;
+}
+
+function buildSearchText(text: string) {
+  return normalizeSearchText(removeSearchBoilerplate(fixTextArtifacts(text)));
+}
+
+function fixTextArtifacts(text: string) {
+  return text
+    .replace(/\u00c2\u00a9/g, " copyright ")
+    .replace(/\u00c2\u00b0/g, " degrees ")
+    .replace(/\u00e2\u20ac[\u201c\u201d]/g, "-")
+    .replace(/\u00e2\u20ac[\u02dc\u2122\u0098\u0099]/g, "'")
+    .replace(/\u00e2\u20ac[\u0153\u009c\u009d]/g, '"')
+    .replace(/\u00e2\u201e\u00a2/g, "-3")
+    .replace(/\bmol\s*dm\s*(?:\u00e2\u201e\u00a2|\u2122)\b/gi, "mol dm-3")
+    .replace(/\bmoldm\b/gi, "mol dm");
+}
+
+function removeSearchBoilerplate(text: string) {
+  const boilerplatePatterns = [
+    /\bDO\s+NOT\s+WRITE\s+IN\s+(?:THIS|TRIS)\s+MARGIN\b/gi,
+    /\[\s*Turn\s+over[^\]]*\]/gi,
+    /\[\s*Turn\s+over\S*/gi,
+    /\bTurn\s+over\b/gi,
+    /\bRESTRICTED\s*(?:\/\s*NON-SENSITIVE)?\b/gi,
+    /\b(?:Cambridge\s+Assessment\s+)?International\s+Education\b/gi,
+    /\bCambridge\s+Assessment\b/gi,
+    /\bSingapore-Cambridge\b/gi,
+    /\bSingapore\s+Examinations\s+and\s+Assessment\s+Board\b/gi,
+    /\b[A-Z@OQ]*UCLES\b(?:\s*&\s*MOE\s*\d{4})?/gi,
+    /\u00a9/g,
+    /\b(?:UCLES\s*&\s*MOE|copyright\s+UCLES\s*&\s*MOE)\s*\d{4}\b/gi,
+    /\bcopyright\s+\d{4}\b/gi,
+    /\b(?:9729|9647)\/\d{2}\/[A-Z0-9/]+\/\d{2}\b/gi,
+    /\*\s*\d{8,}\s*\*/g,
+    /\bBLANK\s+PAGE\b/gi,
+    /\bQuestion\s+Number\s+Key\b/gi,
+    /Permission to reproduce items where third-party owned material protected by copyright is included has been sought and cleared where possible\.?/gi,
+    /Every reasonable effort has been made by the publisher.*?(?:earliest possible opportunity|make amends)\.?/gi,
+    /This document consists of \d+ printed pages?\.?/gi
+  ];
+
+  return boilerplatePatterns.reduce(
+    (current, pattern) => current.replace(pattern, " "),
+    text
+  );
 }
 
 function normalizeSearchText(text: string) {

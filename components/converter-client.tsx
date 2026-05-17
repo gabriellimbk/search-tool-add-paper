@@ -252,10 +252,12 @@ export default function ConverterClient({ userEmail }: { userEmail: string }) {
             extractionMethod = "pdf_text_with_ocr_words";
           }
 
+          const cleanedText = buildCleanText(text);
+
           pages.push({
             page_number: pageIndex,
-            text,
-            search_text: buildSearchText(text),
+            text: cleanedText,
+            search_text: normalizeSearchText(cleanedText),
             extraction_method: extractionMethod,
             words,
             image_size: {
@@ -723,8 +725,8 @@ function isUsablePdfText(text: string, words: OcrWord[]) {
   return normalized.length >= 120 && words.length >= 40;
 }
 
-function buildSearchText(text: string) {
-  return normalizeSearchText(removeSearchBoilerplate(fixTextArtifacts(text)));
+function buildCleanText(text: string) {
+  return normalizeDisplayText(removeSearchBoilerplate(fixTextArtifacts(text)));
 }
 
 function fixTextArtifacts(text: string) {
@@ -767,6 +769,15 @@ function removeSearchBoilerplate(text: string) {
     (current, pattern) => current.replace(pattern, " "),
     text
   );
+}
+
+function normalizeDisplayText(text: string) {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/\n+/g, "\n")
+    .trim();
 }
 
 function normalizeSearchText(text: string) {

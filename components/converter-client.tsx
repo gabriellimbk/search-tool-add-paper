@@ -760,6 +760,7 @@ function removeSearchBoilerplate(text: string) {
     /\*\s*\d{8,}\s*\*/g,
     /\bBLANK\s+PAGE\b/gi,
     /\bQuestion\s+Number\s+Key\b/gi,
+    /The\s+information\s+contained\s+in\s+these\s+documents\s+is\s+classified,\s+privileged\s+and\s+only\s+for\s+the\s+information\s+of\s+the\s+intended\s+recipient\s+and\s+may\s+not\s+be\s+used,\s+published\s+or\s+redistributed\s+without\s+the\s+prior\s+written\s+consent\s+of(?:\s+Singapore\s+Examinations\s+and\s+Assessment\s+Board)?\.?/gi,
     /Permission to reproduce items where third-party owned material protected by copyright is included has been sought and cleared where possible\.?/gi,
     /Every reasonable effort has been made by the publisher.*?(?:earliest possible opportunity|make amends)\.?/gi,
     /This document consists of \d+ printed pages?\.?/gi
